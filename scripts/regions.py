@@ -46,13 +46,44 @@ def load_index():
         if not rid or not pbf:
             continue
         regions[rid] = {"id": rid, "parent": props.get("parent"), "url": pbf,
-                        "name": props.get("name") or rid}
+                        "name": props.get("name") or rid,
+                        "iso1": props.get("iso3166-1:alpha2") or [],
+                        "iso2": props.get("iso3166-2") or []}
 
     if len(regions) < 50:
         raise SystemExit(
             "only %d usable regions in index-v1.json - refusing to run with a "
             "partial world. Check https://download.geofabrik.de/index-v1.json" % len(regions))
     return regions
+
+
+def dump_tree(regions):
+    """Print the region tree exactly as Geofabrik describes it.
+
+    The plan came out with overlapping regions - the whole US alongside all
+    fifty states, Germany alongside DACH - and the walker cannot be corrected
+    without seeing how parent links and country codes are really arranged.
+    Written to stderr so it lands in the workflow log.
+    """
+    children = {}
+    for r in regions.values():
+        children.setdefault(r["parent"], []).append(r["id"])
+
+    def codes(r):
+        bits = []
+        if r["iso1"]:
+            bits.append("iso1=" + ",".join(r["iso1"]))
+        if r["iso2"]:
+            bits.append("iso2=" + ",".join(r["iso2"][:4]) + ("..." if len(r["iso2"]) > 4 else ""))
+        return " ".join(bits) or "-"
+
+    sys.stderr.write("\n===== GEOFABRIK REGION TREE (%d regions) =====\n" % len(regions))
+    sys.stderr.write("%-34s %-22s %5s  %s\n" % ("id", "parent", "kids", "codes"))
+    for rid in sorted(regions):
+        r = regions[rid]
+        sys.stderr.write("%-34s %-22s %5d  %s\n"
+                         % (rid, r["parent"] or "(top)", len(children.get(rid, [])), codes(r)))
+    sys.stderr.write("===== END REGION TREE =====\n\n")
 
 
 def size_of(url):
@@ -124,6 +155,7 @@ def main():
         chosen = [(regions[r], size_of(regions[r]["url"])) for r in wanted]
         sys.stderr.write("TEST RUN - %d region(s) only, not the whole world\n" % len(chosen))
     else:
+        dump_tree(regions)
         chosen = plan(regions, int(args.max_gb * 1024 ** 3))
 
     total = sum(s for _, s in chosen if s)
