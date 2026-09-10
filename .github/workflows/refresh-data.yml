@@ -70,7 +70,7 @@ jobs:
           exit 0
 
       - name: Extract toilets from every region
-        run: ./scripts/extract.sh < plan.tsv
+        run: bash scripts/extract.sh < plan.tsv
         env:
           OUT: toilets.geojsonseq
 
