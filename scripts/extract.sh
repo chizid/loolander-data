@@ -40,11 +40,11 @@ while IFS=$'\t' read -r id url bytes; do
   # Keeps nodes and ways tagged amenity=toilets. Without -R it also keeps the
   # nodes those ways are built from, which is what lets the next step work out
   # where a toilet building actually is.
-  osmium tags-filter --overwrite --verbose=false \
+  osmium tags-filter --overwrite \
     -o "$WORK/toilets.osm.pbf" "$WORK/region.osm.pbf" nw/amenity=toilets
 
   osmium export --overwrite \
-    -f geojsonseq -u type_id --index-type=sparse_file_array \
+    -f geojsonseq -u type_id \
     -o "$WORK/toilets.geojsonseq" "$WORK/toilets.osm.pbf"
 
   found=$(wc -l < "$WORK/toilets.geojsonseq")
