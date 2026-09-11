@@ -63,21 +63,24 @@ jobs:
           echo "--- plan ---"
           cut -f1 plan.tsv | paste -sd' ' -
 
-      - name: Stop here if this is a dry run
+      # Every step below is skipped on a dry run. `exit 0` would only end its
+      # own step - the job would carry on and download the world anyway.
+      - name: Say what a dry run would have done
         if: ${{ inputs.dry_run }}
-        run: |
-          echo "Dry run - nothing downloaded. The plan above is what a real run would fetch."
-          exit 0
+        run: echo "Dry run - nothing downloaded. The plan above is what a real run would fetch."
 
       - name: Extract toilets from every region
+        if: ${{ !inputs.dry_run }}
         run: bash scripts/extract.sh < plan.tsv
         env:
           OUT: toilets.geojsonseq
 
       - name: Build the tiles
+        if: ${{ !inputs.dry_run }}
         run: python3 scripts/build_tiles.py toilets.geojsonseq --out out
 
       - name: Check the result is not broken
+        if: ${{ !inputs.dry_run }}
         run: |
           # A test run covers one country, so the worldwide floor does not apply.
           if [ -n "${{ inputs.only }}" ]; then
@@ -89,21 +92,23 @@ jobs:
           fi
 
       - name: Upload the cells
-        if: ${{ !inputs.only }}
+        if: ${{ !inputs.only && !inputs.dry_run }}
         run: |
-          aws s3 sync out/v1/cells "s3://${R2_S3_API##*/}/v1/cells" \
-            --endpoint-url "${R2_S3_API%/*}" \
+          api="${R2_S3_API%/}"          # tolerate a copied trailing slash
+          aws s3 sync out/v1/cells "s3://${api##*/}/v1/cells" \
+            --endpoint-url "${api%/*}" \
             --content-type application/json \
             --content-encoding gzip \
             --cache-control "public, max-age=86400" \
             --delete --no-progress
 
       - name: Upload the manifest last
-        if: ${{ !inputs.only }}
+        if: ${{ !inputs.only && !inputs.dry_run }}
         run: |
           # Last, so the manifest never advertises a cell that is not there yet.
-          aws s3 cp out/v1/manifest.json "s3://${R2_S3_API##*/}/v1/manifest.json" \
-            --endpoint-url "${R2_S3_API%/*}" \
+          api="${R2_S3_API%/}"
+          aws s3 cp out/v1/manifest.json "s3://${api##*/}/v1/manifest.json" \
+            --endpoint-url "${api%/*}" \
             --content-type application/json \
             --content-encoding gzip \
             --cache-control "public, max-age=3600" \
