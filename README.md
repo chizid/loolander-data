@@ -81,9 +81,13 @@ Cloudflare's cache, so most requests never reach R2 at all.
 In the Cloudflare dashboard: **R2** → **Create bucket** → name it
 `loolander-data` → **Create**.
 
-Then open the bucket → **Settings** → **Public access** → **Custom domain** →
-**Connect domain** → enter `data.loolander.com`. Cloudflare adds the DNS record
-for you.
+Then open the bucket → **Settings** → **Custom Domains** → **+ Add** → enter
+`data.loolander.com`. Cloudflare adds the DNS record for you. Ignore the
+**Public Development URL** block below it: that is the `r2.dev` address
+Cloudflare rate limits and tells you not to ship with.
+
+Set the **jurisdiction** to European Union when you create the bucket. It keeps
+the data in the EU, which is one less thing to explain in a privacy policy.
 
 Check it worked by visiting `https://data.loolander.com/v1/manifest.json` — you
 should get a "not found" style error rather than a connection failure. Nothing
@@ -96,11 +100,13 @@ is uploaded yet.
 - Permission: **Object Read & Write**
 - Scope it to the `loolander-data` bucket only
 
-It shows you three values **once**. Copy all three somewhere safe now:
+It shows you two values **once**. Copy both somewhere safe now:
 
 - Access Key ID
 - Secret Access Key
-- Account ID (also visible in the R2 sidebar)
+
+You do not need the account ID separately — the S3 API address from the
+bucket's Settings page already contains it.
 
 If you lose them, delete the token and make a new one. Do not paste them into a
 chat, an email, or a file in the repository.
@@ -126,14 +132,20 @@ creates the folders as you type the slashes — then paste in the contents of
 
 In the repository: **Settings** → **Secrets and variables** → **Actions**.
 
-Under **Secrets**, add four:
+Under **Secrets**, add three:
 
 | Name | Value |
 |---|---|
-| `R2_ACCOUNT_ID` | your Cloudflare account ID |
+| `R2_S3_API` | the bucket's **S3 API** address, copied whole |
 | `R2_ACCESS_KEY_ID` | from step 3 |
 | `R2_SECRET_ACCESS_KEY` | from step 3 |
-| `R2_BUCKET` | `loolander-data` |
+
+`R2_S3_API` is the value in the **S3 API** box on your bucket's Settings page.
+Copy it exactly as shown, bucket name on the end and all — the workflow splits
+it into the endpoint and the bucket name itself. Copying it beats typing out
+the account ID, because a bucket created with an EU jurisdiction has an extra
+`.eu` in its address and getting that wrong fails every upload with a
+misleading permissions error.
 
 Under **Variables** (the other tab), add one:
 
@@ -210,6 +222,14 @@ there.
 `--max-gb` in the "Work out which regions" step and it will split that region
 into smaller pieces.
 
+**The plan looks much bigger than the world** — Geofabrik publishes bundles
+like `dach` and `us` alongside the countries and states they already contain,
+as siblings rather than parents, so walking the tree cannot see the overlap.
+`BUNDLES` in `scripts/regions.py` lists the ones worth skipping and what has to
+be present before each is dropped. A bundle whose contents are not all covered
+is kept, so a reorganisation at Geofabrik costs bandwidth rather than losing a
+country. The log says which were dropped and how much that saved.
+
 ---
 
 ## Running it on your own machine
@@ -219,7 +239,7 @@ which is why this runs on GitHub instead.
 
 ```bash
 python3 scripts/regions.py --only denmark > plan.tsv
-./scripts/extract.sh < plan.tsv
+bash scripts/extract.sh < plan.tsv
 python3 scripts/build_tiles.py toilets.geojsonseq --out out
 python3 scripts/check_sane.py --new out/v1/manifest.json --min-count 100
 ```
@@ -228,6 +248,7 @@ Tests, which need nothing but Python:
 
 ```bash
 python3 test/test_build_tiles.py
+python3 test/test_regions.py
 ```
 
 ---
