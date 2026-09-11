@@ -57,6 +57,77 @@ def load_index():
     return regions
 
 
+# Geofabrik publishes convenience bundles - "dach" for Germany-Austria-
+# Switzerland, "us" alongside all fifty states - as SIBLINGS of the regions
+# they contain, not as parents. Walking down the tree therefore cannot see the
+# overlap, and the first full run downloaded 116 GB to extract a world that is
+# only about 80 GB. The toilets came out right, because records are
+# deduplicated by OSM id later, but it wastes hours and takes bandwidth from a
+# service that gives this data away for nothing.
+#
+# Each bundle lists what must already be in the plan before it is dropped.
+# A plain id is satisfied by that region or anything beneath it in the tree.
+# An entry like "us/*40" needs at least 40 chosen regions whose id starts with
+# "us/". A bundle whose requirements are not met is KEPT - so if Geofabrik
+# reorganises, the cost is wasted bandwidth, never a missing country.
+BUNDLES = {
+    "dach": ["germany", "austria", "switzerland"],
+    "alps": ["france", "germany", "austria", "switzerland", "italy", "slovenia"],
+    "britain-and-ireland": ["united-kingdom", "ireland-and-northern-ireland"],
+    "great-britain": ["united-kingdom"],
+    "sea": ["indonesia", "malaysia-singapore-brunei", "philippines", "thailand",
+            "vietnam", "cambodia", "laos", "myanmar", "east-timor"],
+    "south-africa-and-lesotho": ["south-africa", "lesotho"],
+    "us": ["us/*40"],
+    "us-midwest": ["us/*40"],
+    "us-northeast": ["us/*40"],
+    "us-pacific": ["us/*40"],
+    "us-south": ["us/*40"],
+    "us-west": ["us/*40"],
+}
+
+
+def drop_bundles(chosen, regions):
+    """Remove overlapping convenience regions once their contents are covered."""
+    chosen_ids = {r["id"] for r, _ in chosen}
+
+    def beneath(ancestor_id):
+        """Is anything we chose inside this region?"""
+        for rid in chosen_ids:
+            seen, cur = 0, regions.get(rid, {}).get("parent")
+            while cur and seen < 12:
+                if cur == ancestor_id:
+                    return True
+                cur = regions.get(cur, {}).get("parent")
+                seen += 1
+        return False
+
+    def met(req):
+        if "/*" in req:
+            prefix, _, minimum = req.partition("*")
+            return sum(1 for rid in chosen_ids if rid.startswith(prefix)) >= int(minimum)
+        return req in chosen_ids or beneath(req)
+
+    keep, saved = [], 0
+    for region, size in chosen:
+        needs = BUNDLES.get(region["id"])
+        if not needs:
+            keep.append((region, size))
+            continue
+        missing = [r for r in needs if not met(r)]
+        if missing:
+            sys.stderr.write("  keeping bundle %s - not covered by %s\n"
+                             % (region["id"], ", ".join(missing)))
+            keep.append((region, size))
+        else:
+            saved += size or 0
+            sys.stderr.write("  dropping %-24s (%s) - already covered\n"
+                             % (region["id"], human(size)))
+    if saved:
+        sys.stderr.write("skipped %s of overlapping downloads\n" % human(saved))
+    return keep
+
+
 def dump_tree(regions):
     """Print the region tree exactly as Geofabrik describes it.
 
@@ -157,6 +228,7 @@ def main():
     else:
         dump_tree(regions)
         chosen = plan(regions, int(args.max_gb * 1024 ** 3))
+        chosen = drop_bundles(chosen, regions)
 
     total = sum(s for _, s in chosen if s)
     sys.stderr.write("total download: %s across %d files\n" % (human(total), len(chosen)))
